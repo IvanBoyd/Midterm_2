@@ -40,18 +40,18 @@ byte  hexAddress=0x76;
 
 String DateTime, TimeOnly;
 
- // SYSTEM_MODE(AUTOMATIC);          // Default if no SYSTEM_MODE included
-     SYSTEM_MODE(SEMI_AUTOMATIC);     // Uncomment if using without Wifi
-  // SYSTEMF_MODE(MANUAL);            // Fully Manual
+// SYSTEM_MODE(AUTOMATIC);          // Default if no SYSTEM_MODE included
+// SYSTEM_MODE(SEMI_AUTOMATIC);     // Uncomment if using without Wifi
+// SYSTEMF_MODE(MANUAL);            // Fully Manual
 void setup() {
     pinMode(SOIL_MOIST_PIN,INPUT);
     Time.zone(-7);          //MST = -7, MDT = -6
     Particle.syncTime();    // Sync time with Particle Cloud
     Serial.begin(9600);
     display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3D (for the 128x64)
-    display.display(); // show splashscreen
+    display.display();                          // show splashscreen on 1306 OLED
     delay(2000);
-    display.clearDisplay();   // clears the screen and buffer
+    display.clearDisplay();   // clears the OLED screen and buffer
 
     // draw a single pixel
     display.drawPixel(10, 10, WHITE);
@@ -59,9 +59,7 @@ void setup() {
     delay(2000);
     display.clearDisplay();
     runBMEchk();        // check temp module BME280
-
-
-}
+}                   //   ***  END OF SETUP  ***
 
 void loop() {
 
@@ -73,19 +71,21 @@ void loop() {
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0,0);
-  display.println("Ivan Ivanovich");
+  display.println("Trancer DEER");
 
   display.display();
 //   delay(6000);
   display.clearDisplay();
 
-  DateTime = Time.timeStr();      //Current Date & Time from Particle Time
-  TimeOnly = DateTime.substring(11,19);   //Ext time from datetime str
+  DateTime = Time.timeStr();                      //Current Date & Time from Particle Time
+  TimeOnly = DateTime.substring(11,19);           //Ext time from datetime str
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(3,0);
   display.printf("Date/Time:%s\n",DateTime.c_str());
   display.printf("Time: %s\n",TimeOnly.c_str());
+  display.printf("Temp: %f\n", tempF);
+
   display.display();
   Serial.printf("Date & Time is %s\n",DateTime.c_str());
   Serial.printf("Time is %s\n",TimeOnly.c_str());
@@ -104,7 +104,7 @@ void runBMEchk()  {         // check status of BME/temp and send to print
     tempC   = bme.readTemperature();  //deg C
     tempF = CtoF(tempC);
     Serial.printf("Temperature at startup: %f \n",tempF);
-    delay(4000);
+    delay(2000);
    }
 }
 

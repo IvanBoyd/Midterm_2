@@ -23,18 +23,20 @@
 #include <Adafruit_BME280.h>                // temp, pressure & humidity
 #include "Adafruit_GFX.h"
 #include "Adafruit_SSD1306.h"  
-#include <Adafruit_MQTT.h>
-#include "Adafruit_MQTT/Adafruit_MQTT_SPARK.h" 
+#include "Adafruit_MQTT_SPARK.h"
+#include "Adafruit_MQTT.h"
 #include "credentials.h"
+
 
 /************ Global State (you don't need to change this!) ***   ***************/ 
 void setup();
 void loop();
+void waterPlantTillMoist();
 void waterPlantHalfSec();
 void runBMEchk();
 float CtoF(float _tempC);
 void MQTT_connect();
-#line 25 "c:/Users/boyd/Documents/IoT/Midterm_2/MidTerm2/src/MidTerm2.ino"
+#line 26 "c:/Users/boyd/Documents/IoT/Midterm_2/MidTerm2/src/MidTerm2.ino"
 TCPClient TheClient; 
 
 // Setup the MQTT client class by passing in the WiFi client and MQTT server and login details. 
@@ -43,10 +45,10 @@ Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_K
 /****************************** Feeds ***************************************/ 
 // Setup Feeds to publish or subscribe 
 // Notice MQTT paths for AIO follow the form: <username>/feeds/<feedname> 
-Adafruit_MQTT_Publish mqttObj1 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/FeedNameA"); //Room Temp
+Adafruit_MQTT_Publish mqttObj1 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/FeedNameA");             //Room Temp
 Adafruit_MQTT_Publish mqttObj3 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/FeedSoilMoist");
 
-Adafruit_MQTT_Subscribe mqttObj2 = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/FeedNameB");
+Adafruit_MQTT_Subscribe mqttObj2 = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/FeedNameB");         // receives button press
 
 /************Declare Variables*************/
 unsigned long last, lastTime;
@@ -55,9 +57,9 @@ int   MQTTbuttVal;
 const int LED_PIN = 9,
           D7_LED  = D7,               // not needed just call D7 directly
           PUMP_RELAY_PIN  = D12;       // this is pin M0 or MO
-// bool  runPump = true;                 // !!!  must be set true when watering !!!
-bool  runPump = false,   
-      debug   = true;            // !!! set false when when not testing !!!
+bool  runPump = true;                 // !!!  must be set true when watering !!!
+// bool  runPump = false;   
+bool      deBug  = false;            // !!! set false when when not testing !!!
 
 SYSTEM_MODE(SEMI_AUTOMATIC);
 
@@ -65,8 +67,9 @@ SYSTEM_MODE(SEMI_AUTOMATIC);
 #define OLED_RESET D4
 Adafruit_SSD1306 display(OLED_RESET);
 
-const int SOIL_MOIST_PIN = 19;
-int soilMoistVal = 0;
+const int SOIL_MOIST_PIN    = 19;
+const int TIME2WATER_PLANT  = 3100;         // Set this value based on, Pure Air = 3,500, Pure Water = 1,700, Reading in Dry Soil = 3,280
+int           soilMoistVal  = 0;
 
 // Set up Adafruit_BME280 Environment for temp, pressure & humidity
 Adafruit_BME280 bme;      // for the I2C device
@@ -80,19 +83,25 @@ String DateTime, TimeOnly;
 // SYSTEM_MODE(AUTOMATIC);          // Default if no SYSTEM_MODE included
 // SYSTEM_MODE(SEMI_AUTOMATIC);     // Uncomment if using without Wifi
 // SYSTEMF_MODE(MANUAL);            // Fully Manual
+
 void setup() {
+      Serial.begin(9600);
+
     pinMode(SOIL_MOIST_PIN,INPUT);
     pinMode(PUMP_RELAY_PIN,OUTPUT);
     waterPlantHalfSec();
-    // if(runPump==true) {
-    //   digitalWrite(PUMP_RELAY_PIN,HIGH);
-    //   delay(2000);
-    //   digitalWrite(PUMP_RELAY_PIN,LOW);
+//     // if(runPump==true) {
+//            Serial.printf("test if setup & run pump works /n");
+// delay(4000);
+//       digitalWrite(PUMP_RELAY_PIN,HIGH);
+//       delay(3000);
+//       digitalWrite(PUMP_RELAY_PIN,LOW);
+//             delay(3000);
+
     // }
 
     Time.zone(-7);          //MST = -7, MDT = -6
     Particle.syncTime();    // Sync time with Particle Cloud
-    Serial.begin(9600);
     display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3D (for the 128x64)
     display.display();                          // show splashscreen on 1306 OLED
     delay(2000);
@@ -123,18 +132,27 @@ void setup() {
     pinMode(D7,OUTPUT);
     tempF = CtoF(bme.readTemperature());
     soilMoistVal = analogRead(SOIL_MOIST_PIN); 
-    runPump = false;  
+
 }                   //   ***  END OF SETUP  ***
 
 void loop() {
-    if(runPump==true) {
-      digitalWrite(PUMP_RELAY_PIN,HIGH);
-      delay(2000);
-      digitalWrite(PUMP_RELAY_PIN,LOW);
-            delay(2000);
+    // if(runPump==true) {
+    //   digitalWrite(PUMP_RELAY_PIN,HIGH);
+    //   delay(2000);
+    //   digitalWrite(PUMP_RELAY_PIN,LOW);
+    //         delay(3000);
+    // }
+    // }  // New Publish Code
+    waterPlantTillMoist();
+    // delay(3000);
 
-    }  // New Publish Code
-    waterPlantHalfSec();
+    //  if(runPump==true && soilMoistVal > 2400) {
+    //     while(soilMoistVal > 2400) {
+    //       waterPlantHalfSec();
+    //       soilMoistVal = analogRead(SOIL_MOIST_PIN); 
+
+    //     }
+    //  }
   // Validate connected to MQTT Broker
   // currentTime = millis();
   MQTT_connect();
@@ -173,8 +191,9 @@ void loop() {
           Serial.printf("Received %0.2f from Adafruit.io feed FeedNameB \n",value2);
       MQTTbuttVal = atoi((char *)mqttObj2.lastread);
       if(MQTTbuttVal == 1)  {
-        digitalWrite(LED_PIN, HIGH);
+        // digitalWrite(LED_PIN, HIGH);
         digitalWrite(D7, HIGH);
+        waterPlantHalfSec();
 
         Serial.printf("MQTTbuttVal = %i converted w atoi of value2 (%0.2f) feed FeedNameB \n",MQTTbuttVal, value2);
 
@@ -222,10 +241,35 @@ void loop() {
 
                 //      ***    F U N C T I O N S    ***
 
-void waterPlantHalfSec()  {
+void waterPlantTillMoist()  {
+int _currTime = millis(), _newtime = millis();
+    if(deBug) { 
+      _newtime = millis();
+      Serial.printf("deBug: Watering the plant till Moist: %i runPump: %i), millis: %i, _currTime: %i\n", soilMoistVal, runPump, _newtime, _currTime);
+      delay(1000);
+    }
+    if(runPump && soilMoistVal > TIME2WATER_PLANT) {        // high soilMoistVal == dryer soil
+    while(soilMoistVal > TIME2WATER_PLANT) {
+      waterPlantHalfSec(); 
+       _newtime = millis();
+ 
+      Serial.printf("Watering the plant till Moist: %i runPump: %i), millis: %i, _currTime: %i\n", soilMoistVal, runPump, _newtime, _currTime);
+
+                          // for a half sec
+      while((millis() - _currTime) < 1000)   {
+      }            // after plant has rcvd 1/2 sec water, then wait 1 sec bef giving more
+      soilMoistVal = analogRead(SOIL_MOIST_PIN); 
+    }
+    Serial.printf("Finished watering plant: %i runPump: %i), millis: %i, _currTime: %i\n", soilMoistVal, runPump, _newtime, _currTime);
+
+
+  }
+}
+
+void waterPlantHalfSec()  {                   // waters plant for 1/2 second
 int _currTime = millis();
   while((millis() - _currTime) < 500) {       // water until 1/2 sec has passed
-    if(debug) { 
+    if(deBug==true) { 
       Serial.printf("runPump: (%i), millis: %i, _currTime: %i\n", runPump, millis(), _currTime);
       delay(1000);
     }

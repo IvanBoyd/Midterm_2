@@ -2,12 +2,12 @@
  * Project MidTerm2
  * Description: 
  * Started:
- *  2. Publish soil moisture & room env data to new dashboard
- * To Do: 
  *  3. Auto water plant when soil is too dry (pump only ~1/2 second)
+ * To Do: 
  *  4. Int a button on dashboard that manually waters the plant
  *  Done:   
  *    1. Int 2N3906 Emitter Follower & Relay & BME w Disp
+ *  * 2. Publish soil moisture & room env data to new dashboard
  * Author:      Ivan Boyd
  * Date:        11/08/21
  * History: <-L14_03_SubscribePublish.ino <-L14_02_v2_Moisture.ino
@@ -40,8 +40,11 @@ unsigned long last, lastTime;
 float value1, value2;
 int   MQTTbuttVal;
 const int LED_PIN = 9,
-          D7_LED  = D7;       // not needed just call D7 directly
-// int   rando = 0,  lastSec = 0, currentTime = 0;
+          D7_LED  = D7,               // not needed just call D7 directly
+          PUMP_RELAY_PIN  = D12;       // this is pin M0 or MO
+// bool  runPump = true;                 // !!!  must be set true when watering !!!
+bool  runPump = false,   
+      debug   = true;            // !!! set false when when not testing !!!
 
 SYSTEM_MODE(SEMI_AUTOMATIC);
 
@@ -66,6 +69,14 @@ String DateTime, TimeOnly;
 // SYSTEMF_MODE(MANUAL);            // Fully Manual
 void setup() {
     pinMode(SOIL_MOIST_PIN,INPUT);
+    pinMode(PUMP_RELAY_PIN,OUTPUT);
+    waterPlantHalfSec();
+    // if(runPump==true) {
+    //   digitalWrite(PUMP_RELAY_PIN,HIGH);
+    //   delay(2000);
+    //   digitalWrite(PUMP_RELAY_PIN,LOW);
+    // }
+
     Time.zone(-7);          //MST = -7, MDT = -6
     Particle.syncTime();    // Sync time with Particle Cloud
     Serial.begin(9600);
@@ -76,6 +87,10 @@ void setup() {
 
     // draw a single pixel
     display.drawPixel(10, 10, WHITE);
+      display.setTextSize(1);
+   display.setTextColor(WHITE);
+   display.setCursor(0,0);
+      display.println("Trancer DEER");
     display.display();
     delay(2000);
     display.clearDisplay();
@@ -94,11 +109,19 @@ void setup() {
     pinMode(LED_PIN,OUTPUT);
     pinMode(D7,OUTPUT);
     tempF = CtoF(bme.readTemperature());
-    soilMoistVal = analogRead(SOIL_MOIST_PIN);   
+    soilMoistVal = analogRead(SOIL_MOIST_PIN); 
+    runPump = false;  
 }                   //   ***  END OF SETUP  ***
 
 void loop() {
-  // New Publish Code
+    if(runPump==true) {
+      digitalWrite(PUMP_RELAY_PIN,HIGH);
+      delay(2000);
+      digitalWrite(PUMP_RELAY_PIN,LOW);
+            delay(2000);
+
+    }  // New Publish Code
+    waterPlantHalfSec();
   // Validate connected to MQTT Broker
   // currentTime = millis();
   MQTT_connect();
@@ -161,7 +184,7 @@ void loop() {
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0,0);
-  display.println("Trancer DEER");
+
 
   display.display();
 //   delay(6000);
@@ -175,14 +198,41 @@ void loop() {
   display.printf("Date/Time:%s\n",DateTime.c_str());
   display.printf("Time: %s\n",TimeOnly.c_str());
   display.printf("Temp: %f\n", tempF);
-
+  display.printf("SoilMoist: %i\n", soilMoistVal);
   display.display();
   Serial.printf("Date & Time is %s\n",DateTime.c_str());
   Serial.printf("Time is %s\n",TimeOnly.c_str());
   delay(1000);
 }                     //  *** END OF MAIN VOID LOOP ***
 
+
+
                 //      ***    F U N C T I O N S    ***
+
+void waterPlantHalfSec()  {
+int _currTime = millis();
+  while((millis() - _currTime) < 500) {       // water until 1/2 sec has passed
+    if(debug) { 
+      Serial.printf("runPump: (%i), millis: %i, _currTime: %i\n", runPump, millis(), _currTime);
+      delay(1000);
+    }
+    if(runPump) {
+      digitalWrite(PUMP_RELAY_PIN,HIGH);
+      }
+    else {
+      Serial.printf("runPump is false (%i), imagine plant being watered *ON*\n", runPump);
+      delay(2000);
+      }
+  }
+  if(runPump) {                         // pump has run 1/2 second so turn it off
+    digitalWrite(PUMP_RELAY_PIN,LOW);
+  }
+  else {
+    Serial.printf("runPump is false (%i), imagine pump is now #OFF# plant being watered\n", runPump);
+    delay(2000);
+  } 
+}
+
 
 void runBMEchk()  {         // check status of BME/temp and send to print
   bmeStatus  = bme.begin(hexAddress);

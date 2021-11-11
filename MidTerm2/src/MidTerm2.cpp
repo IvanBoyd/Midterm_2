@@ -8,12 +8,12 @@
  * Project MidTerm2
  * Description: 
  * Started:
- *  3. Auto water plant when soil is too dry (pump only ~1/2 second)
- * To Do: 
- *  4. Int a button on dashboard that manually waters the plant
+ 
  *  Done:   
  *    1. Int 2N3906 Emitter Follower & Relay & BME w Disp
  *  * 2. Publish soil moisture & room env data to new dashboard
+ *    3. Auto water plant when soil is too dry (pump only ~1/2 second)
+ *    4. Int a button on dashboard that manually waters the plant
  * Author:      Ivan Boyd
  * Date:        11/08/21
  * History: <-L14_03_SubscribePublish.ino <-L14_02_v2_Moisture.ino
@@ -26,9 +26,7 @@
 #include "Adafruit_MQTT_SPARK.h"
 #include "Adafruit_MQTT.h"
 #include "credentials.h"
-
-
-/************ Global State (you don't need to change this!) ***   ***************/ 
+#include "Air_Quality_Sensor.h"
 void setup();
 void loop();
 void waterPlantTillMoist();
@@ -36,27 +34,43 @@ void waterPlantHalfSec();
 void runBMEchk();
 float CtoF(float _tempC);
 void MQTT_connect();
-#line 26 "c:/Users/boyd/Documents/IoT/Midterm_2/MidTerm2/src/MidTerm2.ino"
+#line 24 "c:/Users/boyd/Documents/IoT/Midterm_2/MidTerm2/src/MidTerm2.ino"
+#define  AQ_SENS_PIN    A2               // Grove dust /sensor PPD42NS,   has library
+#define  DUST_SENS_PIN  A3             // Grove Air Quality 3.1 sensor Grove dust /sensor PPD42NS,   has library
+
+
+/************ Global State (you don't need to change this!) ***   ***************/ 
 TCPClient TheClient; 
 
 // Setup the MQTT client class by passing in the WiFi client and MQTT server and login details. 
 Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
+AirQualitySensor aqSensor(AQ_SENS_PIN);
+String getAirQuality();
 
 /****************************** Feeds ***************************************/ 
 // Setup Feeds to publish or subscribe 
 // Notice MQTT paths for AIO follow the form: <username>/feeds/<feedname> 
 Adafruit_MQTT_Publish mqttObj1 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/FeedNameA");             //Room Temp
 Adafruit_MQTT_Publish mqttObj3 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/FeedSoilMoist");
+Adafruit_MQTT_Publish mqttObj4 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/FeedAQ");
 
 Adafruit_MQTT_Subscribe mqttObj2 = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/FeedNameB");         // receives button press
 
 /************Declare Variables*************/
-unsigned long last, lastTime;
+unsigned long last, lastTime, lastAQTime;
 float value1, value2;
 int   MQTTbuttVal;
-const int LED_PIN = 9,
-          D7_LED  = D7,               // not needed just call D7 directly
-          PUMP_RELAY_PIN  = D12;       // this is pin M0 or MO
+const int LED_PIN         = 9,
+          D7_LED          = D7,               // not needed just call D7 directly
+          PUMP_RELAY_PIN  = D12;
+
+unsigned long duration;
+unsigned long starttime;
+unsigned long sampletime_ms = 30000;//sampe 30s ;
+unsigned long lowpulseoccupancy = 0;
+float ratio = 0;
+float concentration = 0;
+
 bool  runPump = true;                 // !!!  must be set true when watering !!!
 // bool  runPump = false;   
 bool      deBug  = false;            // !!! set false when when not testing !!!
@@ -86,9 +100,13 @@ String DateTime, TimeOnly;
 
 void setup() {
       Serial.begin(9600);
-
-    pinMode(SOIL_MOIST_PIN,INPUT);
-    pinMode(PUMP_RELAY_PIN,OUTPUT);
+    pinMode(AQ_SENS_PIN, INPUT);
+    pinMode(DUST_SENS_PIN, INPUT);
+    pinMode(SOIL_MOIST_PIN, INPUT);
+    pinMode(PUMP_RELAY_PIN, OUTPUT);    
+    pinMode(DUST_SENS_PIN,INPUT);
+    starttime = millis();//get the current time;
+  
     waterPlantHalfSec();
 //     // if(runPump==true) {
 //            Serial.printf("test if setup & run pump works /n");
@@ -132,29 +150,36 @@ void setup() {
     pinMode(D7,OUTPUT);
     tempF = CtoF(bme.readTemperature());
     soilMoistVal = analogRead(SOIL_MOIST_PIN); 
+    if (aqSensor.init()) {
+      Serial.println("Air Quality Sensor ready.");
+    }
+    else {
+      Serial.println("Air Quality Sensor ERROR!");
+    }
+    lastAQTime = millis();
 
 }                   //   ***  END OF SETUP  ***
 
 void loop() {
-    // if(runPump==true) {
-    //   digitalWrite(PUMP_RELAY_PIN,HIGH);
-    //   delay(2000);
-    //   digitalWrite(PUMP_RELAY_PIN,LOW);
-    //         delay(3000);
-    // }
-    // }  // New Publish Code
+  duration = pulseIn(DUST_SENS_PIN, LOW);
+  lowpulseoccupancy = lowpulseoccupancy+duration;
+  if ((millis()-starttime) > sampletime_ms)  {     //if the sampel time == 30s  
+    ratio = lowpulseoccupancy/(sampletime_ms*10.0);  // Integer percentage 0=>100
+    concentration = 1.1*pow(ratio,3)-3.8*pow(ratio,2)+520*ratio+0.62; // using spec sheet curve
+    Serial.print(lowpulseoccupancy);
+    Serial.print(",");
+    Serial.print(ratio);
+    Serial.print(",");
+    Serial.println(concentration);
+    lowpulseoccupancy = 0;
+    starttime = millis();
+  }
+  // String quality = getAirQuality();
+  // Serial.printf("Air Quality: %s\n", quality.c_str());
+  // delay(4000);
+
     waterPlantTillMoist();
-    // delay(3000);
 
-    //  if(runPump==true && soilMoistVal > 2400) {
-    //     while(soilMoistVal > 2400) {
-    //       waterPlantHalfSec();
-    //       soilMoistVal = analogRead(SOIL_MOIST_PIN); 
-
-    //     }
-    //  }
-  // Validate connected to MQTT Broker
-  // currentTime = millis();
   MQTT_connect();
   //  if((currentTime - lastSec)>6000) {
   //    Serial.printf("six seconds have passed /n");
@@ -180,6 +205,21 @@ void loop() {
       Serial.printf("Publishing %0.2f  TempF: %0.2f\n",value1, tempF); 
       } 
     lastTime = millis();
+  }
+    // publish to cloud every 3 minutes or 180  seconds
+  // value1 = random(0,100);
+ 
+ // Air Quality
+  if((millis()-lastAQTime > (60000))) {
+    if(mqtt.Update()) {
+        String quality = getAirQuality();
+        Serial.printf("Air Quality: %s\n", quality.c_str());
+        delay(4000);
+      mqttObj4.publish(quality.c_str());
+
+      Serial.printf("Publishing Air Quality: %s\n", quality.c_str()); 
+      } 
+    lastAQTime = millis();
   }
 
 
@@ -240,6 +280,24 @@ void loop() {
 
 
                 //      ***    F U N C T I O N S    ***
+
+String getAirQuality()  {
+ int quality = aqSensor.slope();
+ String qual = "None";
+ if (quality == AirQualitySensor::FORCE_SIGNAL) {
+   qual = "Danger";
+ }
+ else if (quality == AirQualitySensor::HIGH_POLLUTION)  {
+   qual = "High Pollution";
+ }
+ else if (quality == AirQualitySensor::LOW_POLLUTION) {
+   qual = "Low Pollution";  
+   }
+ else if (quality == AirQualitySensor::FRESH_AIR) {
+   qual = "Fresh Air";
+ }
+  return qual;
+}
 
 void waterPlantTillMoist()  {
 int _currTime = millis(), _newtime = millis();

@@ -39,6 +39,7 @@ String getAirQuality();
 Adafruit_MQTT_Publish mqttObj1 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/FeedNameA");             //Room Temp
 Adafruit_MQTT_Publish mqttObj3 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/FeedSoilMoist");
 Adafruit_MQTT_Publish mqttObj4 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/FeedAQ");
+Adafruit_MQTT_Publish mqttObj5 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/FeedDUST");
 
 Adafruit_MQTT_Subscribe mqttObj2 = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/FeedNameB");         // receives button press
 
@@ -200,13 +201,17 @@ void loop() {
     if(mqtt.Update()) {
         String quality = getAirQuality();
         Serial.printf("Air Quality: %s\n", quality.c_str());
+        Serial.printf("Dust Concentration: %f\n", concentration);
+
         delay(4000);
       mqttObj4.publish(quality.c_str());
+      mqttObj5.publish(concentration);
 
       Serial.printf("Publishing Air Quality: %s\n", quality.c_str()); 
       } 
     lastAQTime = millis();
   }
+// Adafruit_MQTT_Publish mqttObj5 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/FeedDUST");
 
 
   // this is our 'wait for incoming subscription packets' busy subloop
